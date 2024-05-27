@@ -5,7 +5,7 @@ defmodule Graphmath.Mixfile do
     [
       app: :graphmath,
       version: "2.5.0",
-      elixir: "~> 1.12",
+      elixir: "~> 1.16",
       elixirc_paths: elixirc_paths(Mix.env()),
       description: description(),
       package: package(),
@@ -29,10 +29,10 @@ defmodule Graphmath.Mixfile do
 
   defp deps do
     [
-      {:credo, "~> 1.5.6", only: :dev},
-      {:dialyxir, "~> 1.1.0", only: [:dev], runtime: false},
-      {:ex_doc, "~> 0.24.2", only: [:dev, :docs]},
-      {:excoveralls, "~> 0.14.1", only: [:test, :dev]},
+      {:credo, "~> 1.7.6", only: :dev},
+      {:dialyxir, "~> 1.4.3", only: [:dev], runtime: false},
+      {:ex_doc, "~> 0.33.0", only: [:dev, :docs]},
+      {:excoveralls, "~> 0.18.1", only: [:test, :dev]},
       {:inch_ex, "~> 2.0.0", only: :docs}
     ]
   end
