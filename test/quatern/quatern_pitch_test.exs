@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Quatern.PitchQuatern do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :quatern
   @tag :get_pitch

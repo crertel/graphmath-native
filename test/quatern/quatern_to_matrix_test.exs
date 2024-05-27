@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Quatern.ToMatrixQuatern do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :quatern
   @tag :to_matrix

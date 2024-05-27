@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Mat44.MultiplyMat44 do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :mat44
   @tag :multiply

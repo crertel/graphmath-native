@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Vec2.CreateVec2 do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :vec2
   @tag :create

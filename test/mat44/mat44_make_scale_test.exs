@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Mat44.MakeScale do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :mat44
   @tag :make_scale

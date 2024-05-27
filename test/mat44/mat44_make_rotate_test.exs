@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Mat44.MakeRotate do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :mat44
   @tag :make_rotate_x

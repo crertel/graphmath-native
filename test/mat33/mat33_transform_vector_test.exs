@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Mat33.TransformVectorMat33 do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :mat33
   @tag :transform_vector

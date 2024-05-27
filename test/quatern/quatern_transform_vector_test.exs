@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Quatern.TransformVector do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   alias Graphmath.Quatern
   alias Graphmath.Vec3

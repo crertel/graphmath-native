@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Quatern.ScaleQuatern do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :quatern
   @tag :scale

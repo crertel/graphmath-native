@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Mat33.MakeTranslate do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :mat33
   @tag :make_translate

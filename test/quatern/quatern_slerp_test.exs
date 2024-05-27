@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Quatern.SlerpQuatern do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :quatern
   @tag :slerp

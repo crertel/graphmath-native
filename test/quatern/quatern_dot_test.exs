@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Quatern.DotQuatern do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :quatern
   @tag :dot

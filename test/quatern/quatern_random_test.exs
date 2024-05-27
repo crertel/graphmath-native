@@ -1,5 +1,5 @@
 defmodule Graphmath.Quatern.RandomQuatern do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :quatern
   @tag :random

@@ -1,6 +1,6 @@
 defmodule GraphmathTest.Vec3.ScalarTripleVec3 do
   alias Graphmath.Vec3
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :vec3
   @tag :scalar_triple

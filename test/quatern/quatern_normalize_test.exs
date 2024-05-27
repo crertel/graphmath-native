@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Quatern.NormalizeQuatern do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :quatern
   @tag :normalize_strict

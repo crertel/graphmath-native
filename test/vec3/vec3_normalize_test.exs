@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Vec3.NormalizeVec3 do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :vec3
   @tag :normalize

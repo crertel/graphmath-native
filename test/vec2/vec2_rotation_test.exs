@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Vec2.RotateVec2 do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :vec2
   @tag :rotate

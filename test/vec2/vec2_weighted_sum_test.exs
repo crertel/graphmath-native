@@ -1,6 +1,6 @@
 defmodule GraphmathTest.Vec2.WeightedSumVec2 do
   alias Graphmath.Vec2
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :vec2
   @tag :weighted_sum

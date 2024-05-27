@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Vec2.RandomVec2 do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @very_smol 1.0e-10
 

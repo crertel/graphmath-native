@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Vec3.RandomVec3 do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
   import TestUtils
 
   @tag :vec3

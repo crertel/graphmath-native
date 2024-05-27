@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Vec3.EqualVec3 do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
   alias Graphmath.Vec3
 
   @tag :vec3

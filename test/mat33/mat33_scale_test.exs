@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Mat33.ScaleMat33 do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :mat33
   @tag :scale

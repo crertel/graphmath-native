@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Vec2.ScaleVec2 do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :vec2
   @tag :scale

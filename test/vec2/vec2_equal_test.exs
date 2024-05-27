@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Vec2.EqualVec2 do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
   alias Graphmath.Vec2
 
   @tag :vec2

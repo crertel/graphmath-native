@@ -1,5 +1,5 @@
 defmodule GraphmathTest.Mat33.InverseMat33 do
-  use ExUnit.Case
+  use ExUnit.Case, async: false
 
   @tag :Mat33
   @tag :inverse
