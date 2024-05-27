@@ -1,0 +1,11 @@
+/_build
+/deps
+erl_crash.dump
+*.ez
+*.swp
+.mix_tasks
+*.beam
+doc/**/*
+graphmath-native.code-workspace
+.elixir_ls
+.vscode
