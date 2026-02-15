@@ -9,3 +9,5 @@ doc/**/*
 graphmath-native.code-workspace
 .elixir_ls
 .vscode
+**/*.zig
+**/.*.zig
