@@ -5,10 +5,9 @@ defmodule Graphmath.Quatern do
   This submodule handles Quaternion using tuples of floats.
 
   Quaternions represent an angle of theta around a unit axis vector {nx, ny, nz} as `{ cos(theta/2), nx * sin(theta/2), ny * sin(theta/2), nz * sin(theta/2) }`.
-
   """
 
-  alias Graphmath.Mat33, as: Mat33
+  use Zig, otp_app: :graphmath_native, release_mode: :fast
 
   @type quatern :: {float, float, float, float}
   @type vec3 :: {float, float, float}
@@ -17,9 +16,292 @@ defmodule Graphmath.Quatern do
           {float, float, float, float, float, float, float, float, float, float, float, float,
            float, float, float, float}
 
-  # https://en.wikipedia.org/wiki/Machine_epsilon
-  # note that BEAM uses doubles internally, so this is a bit of a cludge
-  @machine_small_float 5.96e-08
+  ~Z"""
+  const beam = @import("beam");
+  const e = @import("erl_nif");
+  const std = @import("std");
+  const c = @cImport({
+      @cInclude("math.h");
+  });
+
+  fn get_tuple(comptime T: type, term: beam.term) !T {
+      const info = @typeInfo(T);
+      const fields = info.Struct.fields;
+      var arity: c_int = undefined;
+      var ptr: [*c]const e.ErlNifTerm = undefined;
+      if (e.enif_get_tuple(beam.context.env, term.v, &arity, &ptr) == 0) return error.ArgumentError;
+      if (arity != fields.len) return error.ArgumentError;
+      var result: T = undefined;
+      inline for (fields, 0..) |field, i| {
+          if (field.type == f64) {
+              var val: f64 = undefined;
+              if (e.enif_get_double(beam.context.env, ptr[i], &val) != 0) {
+                  @field(result, field.name) = val;
+              } else {
+                  var ival: i64 = undefined;
+                  if (e.enif_get_int64(beam.context.env, ptr[i], &ival) != 0) {
+                      @field(result, field.name) = @as(f64, @floatFromInt(ival));
+                  } else return error.ArgumentError;
+              }
+          } else {
+              @field(result, field.name) = try beam.get(field.type, .{ .v = ptr[i] }, .{});
+          }
+      }
+      return result;
+  }
+
+  pub fn identity_nif() beam.term {
+      return beam.make(.{ 1.0, 0.0, 0.0, 0.0 }, .{});
+  }
+
+  pub fn zero_nif() beam.term {
+      return beam.make(.{ 0.0, 0.0, 0.0, 0.0 }, .{});
+  }
+
+  pub fn from_axis_angle_nif(theta: f64, axis_term: beam.term) !beam.term {
+      const axis = try get_tuple(struct { f64, f64, f64 }, axis_term);
+      const half_theta = theta / 2.0;
+      const ct = std.math.cos(half_theta);
+      const st = std.math.sin(half_theta);
+      return beam.make(.{ ct, st * axis.@"0", st * axis.@"1", st * axis.@"2" }, .{});
+  }
+
+  pub fn add_nif(a_term: beam.term, b_term: beam.term) !beam.term {
+      const a = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      const b = try get_tuple(struct { f64, f64, f64, f64 }, b_term);
+      return beam.make(.{ a.@"0" + b.@"0", a.@"1" + b.@"1", a.@"2" + b.@"2", a.@"3" + b.@"3" }, .{});
+  }
+
+  pub fn subtract_nif(a_term: beam.term, b_term: beam.term) !beam.term {
+      const a = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      const b = try get_tuple(struct { f64, f64, f64, f64 }, b_term);
+      return beam.make(.{ a.@"0" - b.@"0", a.@"1" - b.@"1", a.@"2" - b.@"2", a.@"3" - b.@"3" }, .{});
+  }
+
+  pub fn multiply_nif(a_term: beam.term, b_term: beam.term) !beam.term {
+      const a = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      const b = try get_tuple(struct { f64, f64, f64, f64 }, b_term);
+      return beam.make(.{
+          a.@"0" * b.@"0" - a.@"1" * b.@"1" - a.@"2" * b.@"2" - a.@"3" * b.@"3",
+          a.@"0" * b.@"1" + a.@"1" * b.@"0" + a.@"2" * b.@"3" - a.@"3" * b.@"2",
+          a.@"0" * b.@"2" + a.@"2" * b.@"0" + a.@"3" * b.@"1" - a.@"1" * b.@"3",
+          a.@"0" * b.@"3" + a.@"3" * b.@"0" + a.@"1" * b.@"2" - a.@"2" * b.@"1",
+      }, .{});
+  }
+
+  pub fn scale_nif(a_term: beam.term, s: f64) !beam.term {
+      const a = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      return beam.make(.{ a.@"0" * s, a.@"1" * s, a.@"2" * s, a.@"3" * s }, .{});
+  }
+
+  pub fn get_roll_nif(a_term: beam.term) !f64 {
+      const q = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      const f_t_y = 2.0 * q.@"2";
+      const f_t_z = 2.0 * q.@"3";
+      return std.math.atan2(f_t_y * q.@"1" + f_t_z * q.@"0", 1.0 - (f_t_y * q.@"2" + f_t_z * q.@"3"));
+  }
+
+  pub fn get_pitch_nif(a_term: beam.term) !f64 {
+      const q = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      const f_t_x = 2.0 * q.@"1";
+      const f_t_z = 2.0 * q.@"3";
+      return std.math.atan2(f_t_z * q.@"2" + f_t_x * q.@"0", 1.0 - (f_t_x * q.@"1" + f_t_z * q.@"3"));
+  }
+
+  pub fn get_yaw_nif(a_term: beam.term) !f64 {
+      const q = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      const val1 = 2.0 * (q.@"3" * q.@"1" + q.@"2" * q.@"0");
+      const val2 = 1.0 - 2.0 * (q.@"1" * q.@"1" + q.@"2" * q.@"2");
+      return c.atan2(val1, val2);
+  }
+
+  pub fn to_rotation_matrix_33_nif(a_term: beam.term) !beam.term {
+      const q = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      const w = q.@"0"; const x = q.@"1"; const y = q.@"2"; const z = q.@"3";
+      const f_tx = x + x; const f_ty = y + y; const f_tz = z + z;
+      const f_t_wx = f_tx * w; const f_t_wy = f_ty * w; const f_t_wz = f_tz * w;
+      const f_t_xx = f_tx * x; const f_t_xy = f_ty * x; const f_t_xz = f_tz * x;
+      const f_t_yy = f_ty * y; const f_t_yz = f_tz * y; const f_t_zz = f_tz * z;
+      return beam.make(.{
+          1.0 - (f_t_yy + f_t_zz), f_t_xy - f_t_wz, f_t_xz + f_t_wy,
+          f_t_xy + f_t_wz, 1.0 - (f_t_xx + f_t_zz), f_t_yz - f_t_wx,
+          f_t_xz - f_t_wy, f_t_yz + f_t_wx, 1.0 - (f_t_xx + f_t_yy),
+      }, .{});
+  }
+
+  pub fn to_rotation_matrix_44_nif(a_term: beam.term) !beam.term {
+      const q = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      const w = q.@"0"; const x = q.@"1"; const y = q.@"2"; const z = q.@"3";
+      const f_tx = x + x; const f_ty = y + y; const f_tz = z + z;
+      const f_t_wx = f_tx * w; const f_t_wy = f_ty * w; const f_t_wz = f_tz * w;
+      const f_t_xx = f_tx * x; const f_t_xy = f_ty * x; const f_t_xz = f_tz * x;
+      const f_t_yy = f_ty * y; const f_t_yz = f_tz * y; const f_t_zz = f_tz * z;
+      return beam.make(.{
+          1.0 - (f_t_yy + f_t_zz), f_t_xy - f_t_wz, f_t_xz + f_t_wy, 0.0,
+          f_t_xy + f_t_wz, 1.0 - (f_t_xx + f_t_zz), f_t_yz - f_t_wx, 0.0,
+          f_t_xz - f_t_wy, f_t_yz + f_t_wx, 1.0 - (f_t_xx + f_t_yy), 0.0,
+          0.0, 0.0, 0.0, 1.0,
+      }, .{});
+  }
+
+  pub fn dot_nif(a_term: beam.term, b_term: beam.term) !f64 {
+      const a = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      const b = try get_tuple(struct { f64, f64, f64, f64 }, b_term);
+      return a.@"0" * b.@"0" + a.@"1" * b.@"1" + a.@"2" * b.@"2" + a.@"3" * b.@"3";
+  }
+
+  pub fn norm_nif(a_term: beam.term) !f64 {
+      const a = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      return std.math.sqrt(a.@"0" * a.@"0" + a.@"1" * a.@"1" + a.@"2" * a.@"2" + a.@"3" * a.@"3");
+  }
+
+  pub fn normalize_nif(a_term: beam.term) !beam.term {
+      const a = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      const mag = std.math.sqrt(a.@"0" * a.@"0" + a.@"1" * a.@"1" + a.@"2" * a.@"2" + a.@"3" * a.@"3");
+      if (mag > 0) {
+          const inv_mag = 1.0 / mag;
+          return beam.make(.{ a.@"0" * inv_mag, a.@"1" * inv_mag, a.@"2" * inv_mag, a.@"3" * inv_mag }, .{});
+      } else {
+          return beam.make(.{ 0.0, 0.0, 0.0, 0.0 }, .{});
+      }
+  }
+
+  pub fn inverse_nif(a_term: beam.term) !beam.term {
+      const a = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      const f_norm = a.@"0" * a.@"0" + a.@"1" * a.@"1" + a.@"2" * a.@"2" + a.@"3" * a.@"3";
+      if (f_norm > 0.0) {
+          const f_inv_norm = 1.0 / f_norm;
+          return beam.make(.{ a.@"0" * f_inv_norm, -a.@"1" * f_inv_norm, -a.@"2" * f_inv_norm, -a.@"3" * f_inv_norm }, .{});
+      } else {
+          return beam.make(.{ 0.0, 0.0, 0.0, 0.0 }, .{});
+      }
+  }
+
+  pub fn slerp_nif(a_term: beam.term, b_term: beam.term, t: f64) !beam.term {
+      const a = try get_tuple(struct { f64, f64, f64, f64 }, a_term);
+      const b = try get_tuple(struct { f64, f64, f64, f64 }, b_term);
+      const f_cos = a.@"0" * b.@"0" + a.@"1" * b.@"1" + a.@"2" * b.@"2" + a.@"3" * b.@"3";
+
+      if (@abs(f_cos) < 1.0 - 1.0e-03) {
+          const f_sin = std.math.sqrt(1.0 - f_cos * f_cos);
+          const f_angle = std.math.atan2(f_sin, f_cos);
+          const f_inv_sin = 1.0 / f_sin;
+          const f_coeff0 = std.math.sin((1.0 - t) * f_angle) * f_inv_sin;
+          const f_coeff1 = std.math.sin(t * f_angle) * f_inv_sin;
+
+          const res_w = a.@"0" * f_coeff0 + b.@"0" * f_coeff1;
+          const res_x = a.@"1" * f_coeff0 + b.@"1" * f_coeff1;
+          const res_y = a.@"2" * f_coeff0 + b.@"2" * f_coeff1;
+          const res_z = a.@"3" * f_coeff0 + b.@"3" * f_coeff1;
+
+          const mag = std.math.sqrt(res_w*res_w + res_x*res_x + res_y*res_y + res_z*res_z);
+          const inv_mag = 1.0 / mag;
+          return beam.make(.{ res_w * inv_mag, res_x * inv_mag, res_y * inv_mag, res_z * inv_mag }, .{});
+      } else {
+          const res_w = a.@"0" * (1.0 - t) + b.@"0" * t;
+          const res_x = a.@"1" * (1.0 - t) + b.@"1" * t;
+          const res_y = a.@"2" * (1.0 - t) + b.@"2" * t;
+          const res_z = a.@"3" * (1.0 - t) + b.@"3" * t;
+
+          const mag = std.math.sqrt(res_w*res_w + res_x*res_x + res_y*res_y + res_z*res_z);
+          const inv_mag = 1.0 / mag;
+          return beam.make(.{ res_w * inv_mag, res_x * inv_mag, res_y * inv_mag, res_z * inv_mag }, .{});
+      }
+  }
+
+  pub fn transform_vector_nif(q_term: beam.term, v_term: beam.term) !beam.term {
+      const q = try get_tuple(struct { f64, f64, f64, f64 }, q_term);
+      const v = try get_tuple(struct { f64, f64, f64 }, v_term);
+      const qw = q.@"0"; const qx = q.@"1"; const qy = q.@"2"; const qz = q.@"3";
+      const vx = v.@"0"; const vy = v.@"1"; const vz = v.@"2";
+
+      const dot_uv = qx * vx + qy * vy + qz * vz;
+      const two_dot_uv = 2.0 * dot_uv;
+      const dot_uu = qx * qx + qy * qy + qz * qz;
+      const v_scalar = qw * qw - dot_uu;
+      const two_qw = 2.0 * qw;
+
+      return beam.make(.{
+          two_dot_uv * qx + v_scalar * vx + two_qw * (qy * vz - qz * vy),
+          two_dot_uv * qy + v_scalar * vy + two_qw * (qz * vx - qx * vz),
+          two_dot_uv * qz + v_scalar * vz + two_qw * (qx * vy - qy * vx)
+      }, .{});
+  }
+
+  pub fn from_rotation_matrix_nif(mat_term: beam.term) !beam.term {
+      const mat = try get_tuple(struct { f64, f64, f64, f64, f64, f64, f64, f64, f64 }, mat_term);
+      const a11 = mat.@"0"; const a12 = mat.@"1"; const a13 = mat.@"2";
+      const a21 = mat.@"3"; const a22 = mat.@"4"; const a23 = mat.@"5";
+      const a31 = mat.@"6"; const a32 = mat.@"7"; const a33 = mat.@"8";
+
+      const f_trace = a11 + a22 + a33;
+
+      if (f_trace > 0.0) {
+          const f_root = std.math.sqrt(f_trace + 1.0);
+          const w = 0.5 * f_root;
+          const s = 0.5 / f_root;
+          return beam.make(.{ w, (a32 - a23) * s, (a13 - a31) * s, (a21 - a12) * s }, .{});
+      } else {
+          var i: usize = 0;
+          if (a22 > a11) i = 1;
+          if (i == 0) { if (a33 > a11) i = 2; } else { if (a33 > a22) i = 2; }
+
+          const i_next = [3]usize{ 1, 2, 0 };
+          const j = i_next[i];
+          const k = i_next[j];
+
+          const m = [9]f64{ a11, a12, a13, a21, a22, a23, a31, a32, a33 };
+          const f_root = std.math.sqrt(m[i * 3 + i] - m[j * 3 + j] - m[k * 3 + k] + 1.0);
+
+          var apk_quat = [3]f64{ 0.0, 0.0, 0.0 };
+          apk_quat[i] = 0.5 * f_root;
+          const s = 0.5 / f_root;
+          apk_quat[j] = (m[j * 3 + i] + m[i * 3 + j]) * s;
+          apk_quat[k] = (m[k * 3 + i] + m[i * 3 + k]) * s;
+
+          return beam.make(.{ apk_quat[0], apk_quat[1], apk_quat[2], (m[k * 3 + j] - m[j * 3 + k]) * s }, .{});
+      }
+  }
+
+  pub fn integrate_nif(q_term: beam.term, omega_term: beam.term, dt: f64) !beam.term {
+      const q = try get_tuple(struct { f64, f64, f64, f64 }, q_term);
+      const omega = try get_tuple(struct { f64, f64, f64 }, omega_term);
+
+      const half_dt = dt * 0.5;
+      const theta_x = omega.@"0" * half_dt;
+      const theta_y = omega.@"1" * half_dt;
+      const theta_z = omega.@"2" * half_dt;
+
+      const theta_mag_sq = theta_x * theta_x + theta_y * theta_y + theta_z * theta_z;
+
+      var delta_q_w: f64 = undefined;
+      var s: f64 = undefined;
+
+      if (theta_mag_sq * theta_mag_sq / 24.0 < 5.96e-08) {
+          delta_q_w = 1.0 - theta_mag_sq / 2.0;
+          s = 1.0 - theta_mag_sq / 6.0;
+      } else {
+          const theta_mag = std.math.sqrt(theta_mag_sq);
+          delta_q_w = std.math.cos(theta_mag);
+          s = std.math.sin(theta_mag) / theta_mag;
+      }
+
+      const dq_w = delta_q_w;
+      const dq_x = theta_x * s;
+      const dq_y = theta_y * s;
+      const dq_z = theta_z * s;
+
+      // Multiply dq * q
+      const res_w = dq_w * q.@"0" - dq_x * q.@"1" - dq_y * q.@"2" - dq_z * q.@"3";
+      const res_x = dq_w * q.@"1" + dq_x * q.@"0" + dq_y * q.@"3" - dq_z * q.@"2";
+      const res_y = dq_w * q.@"2" + dq_y * q.@"0" + dq_z * q.@"1" - dq_x * q.@"3";
+      const res_z = dq_w * q.@"3" + dq_z * q.@"0" + dq_x * q.@"2" - dq_y * q.@"1";
+
+      const mag = std.math.sqrt(res_w*res_w + res_x*res_x + res_y*res_y + res_z*res_z);
+      const inv_mag = if (mag > 0) 1.0 / mag else 1.0;
+      return beam.make(.{ res_w * inv_mag, res_x * inv_mag, res_y * inv_mag, res_z * inv_mag }, .{});
+  }
+  """
 
   @doc """
   `identity()` creates the identity `quatern`.
@@ -29,7 +311,7 @@ defmodule Graphmath.Quatern do
   It returns a `quatern` of the form `{1.0, 0.0, 0.0, 0.0}`.
   """
   @spec identity() :: quatern
-  def identity(), do: {1.0, 0.0, 0.0, 0.0}
+  def identity(), do: identity_nif()
 
   @doc """
   `zero()` creates a zero `quatern`.
@@ -41,7 +323,7 @@ defmodule Graphmath.Quatern do
   Note that the zero quaternion is almost definetely not something you ever use.
   """
   @spec zero() :: quatern
-  def zero(), do: {0.0, 0.0, 0.0, 0.0}
+  def zero(), do: zero_nif()
 
   @doc """
   `equal_elements(a,b)` checks to see if two quaternions a and b are element-wise equal.
@@ -59,9 +341,12 @@ defmodule Graphmath.Quatern do
   In such cases, prefer the `equal/2` function.
   """
   @spec equal_elements(quatern, quatern) :: boolean()
-  def equal_elements({aw, ax, ay, az} = _a, {bw, bx, by, bz} = _b) do
-    aw == bw and ax == bx and ay == by and az == bz
-  end
+  def equal_elements({aw, ax, ay, az}, {bw, bx, by, bz})
+      when is_float(aw) and is_float(ax) and is_float(ay) and is_float(az) and
+             is_float(bw) and is_float(bx) and is_float(by) and is_float(bz),
+      do: aw == bw and ax == bx and ay == by and az == bz
+
+  def equal_elements(a, b), do: equal_elements(to_float(a), to_float(b))
 
   @doc """
   `equal_elements(a,b, eps)` checks to see if two quaternions a and b are element-wise equal to some epsilon
@@ -81,12 +366,16 @@ defmodule Graphmath.Quatern do
   In such cases, prefer the `equal/3` function.
   """
   @spec equal_elements(quatern, quatern, float) :: boolean()
-  def equal_elements({aw, ax, ay, az} = _a, {bw, bx, by, bz} = _b, eps) do
-    abs(aw - bw) <= eps and
-      abs(ax - bx) <= eps and
-      abs(ay - by) <= eps and
-      abs(az - bz) <= eps
-  end
+  def equal_elements({aw, ax, ay, az}, {bw, bx, by, bz}, eps)
+      when is_float(aw) and is_float(ax) and is_float(ay) and is_float(az) and
+             is_float(bw) and is_float(bx) and is_float(by) and is_float(bz) and is_float(eps),
+      do:
+        abs(aw - bw) <= eps and
+          abs(ax - bx) <= eps and
+          abs(ay - by) <= eps and
+          abs(az - bz) <= eps
+
+  def equal_elements(a, b, eps), do: equal_elements(to_float(a), to_float(b), 1.0 * eps)
 
   @doc """
   `equal(a,b)` checks to see if two orientation quaternions a and b are equivalent.
@@ -140,9 +429,7 @@ defmodule Graphmath.Quatern do
   It returns a `quatern` of the form `{w,x,y,z}`.
   """
   @spec create(float, float, float, float) :: quatern
-  def create(w, x, y, z) do
-    {w, x, y, z}
-  end
+  def create(w, x, y, z), do: {1.0 * w, 1.0 * x, 1.0 * y, 1.0 * z}
 
   @doc """
   `create(quatern)` creates a `quatern` from a list of 4 or more floats.
@@ -152,7 +439,7 @@ defmodule Graphmath.Quatern do
   It returns a `quatern` of the form `{w,x,y,z}`, where `w`, `x`, `y`, and `z` are the first four elements in `quatern`.
   """
   @spec from_list([float]) :: quatern
-  def from_list([w, x, y, z]), do: {w, x, y, z}
+  def from_list([w, x, y, z | _]), do: {1.0 * w, 1.0 * x, 1.0 * y, 1.0 * z}
 
   @doc """
   `create(w, vec)` creates a `quatern` from an angle and an axis.
@@ -164,12 +451,7 @@ defmodule Graphmath.Quatern do
   It returns a `quatern` of the form `{w,x,y,z}`.
   """
   @spec from_axis_angle(float, vec3) :: quatern
-  def from_axis_angle(theta, {x, y, z}) do
-    half_theta = theta / 2.0
-    ct = :math.cos(half_theta)
-    st = :math.sin(half_theta)
-    {ct, st * x, st * y, st * z}
-  end
+  def from_axis_angle(theta, axis), do: from_axis_angle_nif(1.0 * theta, to_float_v3(axis))
 
   @doc """
   `add(lhs, rhs)` add two quaternions.
@@ -181,12 +463,7 @@ defmodule Graphmath.Quatern do
   It returns a `quatern` of the form { lhs<sub>w</sub> + rhs<sub>w</sub>, lhs<sub>x</sub> + rhs<sub>x</sub>, lhs<sub>y</sub> + rhs<sub>y</sub>, lhs<sub>z</sub> + rhs<sub>z</sub> }.
   """
   @spec add(quatern, quatern) :: quatern
-  def add(lhs, rhs) do
-    {w, x, y, z} = lhs
-    {a, b, c, d} = rhs
-
-    {w + a, x + b, y + c, z + d}
-  end
+  def add(lhs, rhs), do: add_nif(to_float(lhs), to_float(rhs))
 
   @doc """
   `subtract(lhs, rhs)` subtract two quaternions.
@@ -198,12 +475,7 @@ defmodule Graphmath.Quatern do
    It returns a `quatern` of the form { lhs<sub>w</sub> - rhs<sub>w</sub>, lhs<sub>x</sub> - rhs<sub>x</sub>, lhs<sub>y</sub> - rhs<sub>y</sub>, lhs<sub>z</sub> - rhs<sub>z</sub> }.
   """
   @spec subtract(quatern, quatern) :: quatern
-  def subtract(lhs, rhs) do
-    {w, x, y, z} = lhs
-    {a, b, c, d} = rhs
-
-    {w - a, x - b, y - c, z - d}
-  end
+  def subtract(lhs, rhs), do: subtract_nif(to_float(lhs), to_float(rhs))
 
   @doc """
   `multiply(lhs, rhs)` multiply two quaternions.
@@ -216,13 +488,7 @@ defmodule Graphmath.Quatern do
    NOTE: Multiplication is not generally commutative, so in most cases p*q != q*p.
   """
   @spec multiply(quatern, quatern) :: quatern
-  def multiply(lhs, rhs) do
-    {w, x, y, z} = lhs
-    {a, b, c, d} = rhs
-
-    {w * a - x * b - y * c - z * d, w * b + x * a + y * d - z * c, w * c + y * a + z * b - x * d,
-     w * d + z * a + x * c - y * b}
-  end
+  def multiply(lhs, rhs), do: multiply_nif(to_float(lhs), to_float(rhs))
 
   @doc """
   `scale(quat, scalar)` multiply a `quatern` for a scalar.
@@ -235,11 +501,7 @@ defmodule Graphmath.Quatern do
       { a<sub>w</sub> * scalar, a<sub>x</sub> * scalar, a<sub>y</sub> * scalar, a<sub>z</sub> * scalar}.
   """
   @spec scale(quatern, float) :: quatern
-  def scale(quat, scalar) do
-    {w, x, y, z} = quat
-
-    {w * scalar, x * scalar, y * scalar, z * scalar}
-  end
+  def scale(quat, scalar), do: scale_nif(to_float(quat), 1.0 * scalar)
 
   @doc """
   `roll(quat)` Calculate the local roll element of a quaternion.
@@ -249,18 +511,7 @@ defmodule Graphmath.Quatern do
   It returns a `float` representing the roll of the quaternion in Radians.
   """
   @spec get_roll(quatern) :: float
-  def get_roll(quat) do
-    {w, x, y, z} = quat
-
-    f_t_y = 2.0 * y
-    f_t_z = 2.0 * z
-    f_t_wz = f_t_z * w
-    f_t_xy = f_t_y * x
-    f_t_yy = f_t_y * y
-    f_t_zz = f_t_z * z
-
-    :math.atan2(f_t_xy + f_t_wz, 1.0 - (f_t_yy + f_t_zz))
-  end
+  def get_roll(quat), do: get_roll_nif(to_float(quat))
 
   @doc """
   `pitch(quat)` Calculate the local pitch element of a quaternion.
@@ -269,19 +520,8 @@ defmodule Graphmath.Quatern do
 
   It returns a `float` representing the pitch of the quaternion in Radians.
   """
-  @spec get_pitch(quatern) :: float
-  def get_pitch(quat) do
-    {w, x, y, z} = quat
-
-    f_t_x = 2.0 * x
-    f_t_z = 2.0 * z
-    f_t_wx = f_t_x * w
-    f_t_xx = f_t_x * x
-    f_t_yz = f_t_z * y
-    f_t_zz = f_t_z * z
-
-    :math.atan2(f_t_yz + f_t_wx, 1.0 - (f_t_xx + f_t_zz))
-  end
+  @spec get_pitch(quat :: quatern) :: float
+  def get_pitch(quat), do: get_pitch_nif(to_float(quat))
 
   @doc """
   `yaw(quat)` Calculate the local yaw element of a quaternion.
@@ -291,19 +531,7 @@ defmodule Graphmath.Quatern do
   It returns a `float` representing the yaw of the quaternion in Radians.
   """
   @spec get_yaw(quatern) :: float
-  def get_yaw(quat) do
-    {w, x, y, z} = quat
-
-    f_t_x = 2.0 * x
-    f_t_y = 2.0 * y
-    f_t_z = 2.0 * z
-    f_t_wy = f_t_y * w
-    f_t_xx = f_t_x * x
-    f_t_xz = f_t_z * x
-    f_t_yy = f_t_y * y
-
-    :math.atan2(f_t_xz + f_t_wy, 1.0 - (f_t_xx + f_t_yy))
-  end
+  def get_yaw(quat), do: get_yaw_nif(to_float(quat))
 
   @doc """
   `from_rotation_matrix(mat)` creates a `quatern` from a rotation matrix.
@@ -313,43 +541,7 @@ defmodule Graphmath.Quatern do
   It returns a `quatern` of the form `{w,x,y,z}`.
   """
   @spec from_rotation_matrix(mat33) :: quatern
-  def from_rotation_matrix(mat) do
-    {a11, a12, a13, a21, a22, a23, a31, a32, a33} = mat
-
-    # Why does the trace matter? Consult here:
-    # http://www.euclideanspace.com/maths/geometry/rotations/conversions/matrixToQuaternion/
-    f_trace = a11 + a22 + a33
-
-    if f_trace > 0.0 do
-      f_root = :math.sqrt(f_trace + 1.0)
-      w = 0.5 * f_root
-      f_root = 0.5 / f_root
-      {w, (a32 - a23) * f_root, (a13 - a31) * f_root, (a21 - a12) * f_root}
-    else
-      i_next = {1, 2, 0}
-
-      i =
-        cond do
-          a22 > a11 and a33 > Mat33.at(mat, 1, 1) -> 2
-          a33 > Mat33.at(mat, 0, 0) -> 2
-          true -> 0
-        end
-
-      j = elem(i_next, i)
-      k = elem(i_next, j)
-
-      f_root = :math.sqrt(Mat33.at(mat, i, i) - Mat33.at(mat, j, j) - Mat33.at(mat, k, k) + 1.0)
-      apk_quat = {0.0, 0.0, 0.0}
-      apk_quat = put_elem(apk_quat, i, 0.5 * f_root)
-      f_root = 0.5 / f_root
-      apk_quat = put_elem(apk_quat, j, (Mat33.at(mat, j, i) + Mat33.at(mat, i, j)) * f_root)
-      apk_quat = put_elem(apk_quat, k, (Mat33.at(mat, k, i) + Mat33.at(mat, i, k)) * f_root)
-
-      {x, y, z} = apk_quat
-
-      {x, y, z, (Mat33.at(mat, k, j) - Mat33.at(mat, j, k)) * f_root}
-    end
-  end
+  def from_rotation_matrix(mat), do: from_rotation_matrix_nif(to_float_m33(mat))
 
   @doc """
   `to_rotation_matrix_33(quat)` creates a `mat33` from a quatern.
@@ -359,33 +551,7 @@ defmodule Graphmath.Quatern do
   It returns a `mat33` representing a rotation.
   """
   @spec to_rotation_matrix_33(quatern) :: mat33
-  def to_rotation_matrix_33(quat) do
-    {w, x, y, z} = quat
-    f_tx = x + x
-    f_ty = y + y
-    f_tz = z + z
-    f_t_wx = f_tx * w
-    f_t_wy = f_ty * w
-    f_t_wz = f_tz * w
-    f_t_xx = f_tx * x
-    f_t_xy = f_ty * x
-    f_t_xz = f_tz * x
-    f_t_yy = f_ty * y
-    f_t_yz = f_tz * y
-    f_t_zz = f_tz * z
-
-    a11 = 1.0 - (f_t_yy + f_t_zz)
-    a12 = f_t_xy - f_t_wz
-    a13 = f_t_xz + f_t_wy
-    a21 = f_t_xy + f_t_wz
-    a22 = 1.0 - (f_t_xx + f_t_zz)
-    a23 = f_t_yz - f_t_wx
-    a31 = f_t_xz - f_t_wy
-    a32 = f_t_yz + f_t_wx
-    a33 = 1.0 - (f_t_xx + f_t_yy)
-
-    {a11, a12, a13, a21, a22, a23, a31, a32, a33}
-  end
+  def to_rotation_matrix_33(quat), do: to_rotation_matrix_33_nif(to_float(quat))
 
   @doc """
   `to_rotation_matrix_44(quat)` creates a `mat44` from a quatern.
@@ -395,33 +561,7 @@ defmodule Graphmath.Quatern do
   It returns a `mat44` representing a rotation.
   """
   @spec to_rotation_matrix_44(quatern) :: mat44
-  def to_rotation_matrix_44(quat) do
-    {w, x, y, z} = quat
-    f_tx = x + x
-    f_ty = y + y
-    f_tz = z + z
-    f_t_wx = f_tx * w
-    f_t_wy = f_ty * w
-    f_t_wz = f_tz * w
-    f_t_xx = f_tx * x
-    f_t_xy = f_ty * x
-    f_t_xz = f_tz * x
-    f_t_yy = f_ty * y
-    f_t_yz = f_tz * y
-    f_t_zz = f_tz * z
-
-    a11 = 1.0 - (f_t_yy + f_t_zz)
-    a12 = f_t_xy - f_t_wz
-    a13 = f_t_xz + f_t_wy
-    a21 = f_t_xy + f_t_wz
-    a22 = 1.0 - (f_t_xx + f_t_zz)
-    a23 = f_t_yz - f_t_wx
-    a31 = f_t_xz - f_t_wy
-    a32 = f_t_yz + f_t_wx
-    a33 = 1.0 - (f_t_xx + f_t_yy)
-
-    {a11, a12, a13, 0.0, a21, a22, a23, 0.0, a31, a32, a33, 0.0, 0.0, 0.0, 0.0, 1.0}
-  end
+  def to_rotation_matrix_44(quat), do: to_rotation_matrix_44_nif(to_float(quat))
 
   @doc """
   `dot(lhs, rhs)` returns a `float` resultant of the dot product bectween two quaterns.
@@ -433,12 +573,7 @@ defmodule Graphmath.Quatern do
   It returns a `float` representing the dot product.
   """
   @spec dot(quatern, quatern) :: float
-  def dot(lhs, rhs) do
-    {w, x, y, z} = lhs
-    {a, b, c, d} = rhs
-
-    w * a + x * b + y * c + z * d
-  end
+  def dot(lhs, rhs), do: dot_nif(to_float(lhs), to_float(rhs))
 
   @doc """
   `norm(quat)` Returns the L2 norm of a quaternion.
@@ -448,10 +583,7 @@ defmodule Graphmath.Quatern do
   It returns a `float` representing the L2 norm.
   """
   @spec norm(quatern) :: float
-  def norm(quat) do
-    {w, x, y, z} = quat
-    :math.sqrt(w * w + x * x + y * y + z * z)
-  end
+  def norm(quat), do: norm_nif(to_float(quat))
 
   @doc """
   `normalize_strict(q)` returns a normalized verison of a quaternion.
@@ -463,7 +595,9 @@ defmodule Graphmath.Quatern do
   If the magnitude of the quaternion is 0, it will explode.
   """
   @spec normalize_strict(quatern) :: quatern
-  def normalize_strict({w, x, y, z} = _q) do
+  def normalize_strict(q) do
+    {w, x, y, z} = to_float(q)
+    # This will raise ArithmeticError if mag is 0
     inv_mag = 1.0 / :math.sqrt(w * w + x * x + y * y + z * z)
     {w * inv_mag, x * inv_mag, y * inv_mag, z * inv_mag}
   end
@@ -478,16 +612,7 @@ defmodule Graphmath.Quatern do
   If the magnitude of the quaternion is 0, it will return the zero quaternion.
   """
   @spec normalize(quatern) :: quatern
-  def normalize({w, x, y, z} = _q) do
-    mag = :math.sqrt(w * w + x * x + y * y + z * z)
-
-    if mag > 0 do
-      inv_mag = 1.0 / :math.sqrt(w * w + x * x + y * y + z * z)
-      {w * inv_mag, x * inv_mag, y * inv_mag, z * inv_mag}
-    else
-      {0.0, 0.0, 0.0, 0.0}
-    end
-  end
+  def normalize(q), do: normalize_nif(to_float(q))
 
   @doc """
   `inverse(quat)` returns the inverse of a quaternion.
@@ -499,18 +624,7 @@ defmodule Graphmath.Quatern do
   If the `quat` is less than or equal to zero, the quaternion returned is a zero quaternion.
   """
   @spec inverse(quatern) :: quatern
-  def inverse(quat) do
-    {w, x, y, z} = quat
-
-    f_norm = w * w + x * x + y * y + z * z
-
-    if f_norm > 0.0 do
-      f_inv_norm = 1.0 / f_norm
-      {w * f_inv_norm, -x * f_inv_norm, -y * f_inv_norm, -z * f_inv_norm}
-    else
-      {0.0, 0.0, 0.0, 0.0}
-    end
-  end
+  def inverse(quat), do: inverse_nif(to_float(quat))
 
   @doc """
   `conjugate(quat)` returns the conjugate of a quaternion.
@@ -522,10 +636,7 @@ defmodule Graphmath.Quatern do
   Note that the conjugate of a unit quaternion is its inverse.
   """
   @spec conjugate(quatern) :: quatern
-  def conjugate(quat) do
-    {w, x, y, z} = quat
-    {w, -x, -y, -z}
-  end
+  def conjugate({w, x, y, z}), do: {1.0 * w, -1.0 * x, -1.0 * y, -1.0 * z}
 
   @doc """
   `slerp(lhs, rhs, t)` Performs Spherical linear interpolation between two quaternions, and returns the result.
@@ -544,29 +655,7 @@ defmodule Graphmath.Quatern do
   This is specially important in IK animation.
   """
   @spec slerp(quatern, quatern, float) :: quatern
-  def slerp(lhs, rhs, t) do
-    f_cos = dot(lhs, rhs)
-
-    # There are two situations:
-    # 1. "rhs" and "lhs" are very close (fCos ~= +1), so we can do a linear
-    #    interpolation safely.
-    # 2. "rhs" and "lhs" are almost inverse of each other (fCos ~= -1), there
-    #    are an infinite number of possibilities interpolation. but we haven't
-    #    have method to fix this case, so just use linear interpolation here.
-
-    if abs(f_cos) < 1 - 1.0e-03 do
-      f_sin = :math.sqrt(1 - f_cos * f_cos)
-      f_angle = :math.atan2(f_sin, f_cos)
-      f_inv_sin = 1.0 / f_sin
-      f_coeff0 = :math.sin((1.0 - t) * f_angle) * f_inv_sin
-      f_coeff1 = :math.sin(t * f_angle) * f_inv_sin
-      normalize(add(scale(lhs, f_coeff0), scale(rhs, f_coeff1)))
-    else
-      r = add(scale(lhs, 1.0 - t), scale(rhs, t))
-      # taking the complement requires renormalisation
-      normalize(r)
-    end
-  end
+  def slerp(lhs, rhs, t), do: slerp_nif(to_float(lhs), to_float(rhs), 1.0 * t)
 
   @doc """
   `transform_vector(q,v)` transforms a vector v by an orientation quaternion q.
@@ -578,21 +667,7 @@ defmodule Graphmath.Quatern do
   It returns a `Vec3` of `v` having undergone the rotation represented by `q`.
   """
   @spec transform_vector(quatern, vec3) :: vec3
-  def transform_vector({qw, qx, qy, qz}, {vx, vy, vz}) do
-    # v' = qvq', but we'll use the rediscovered formula of rodrigues answer from SO ( https://gamedev.stackexchange.com/a/50545 )
-
-    dot_uv = qx * vx + qy * vy + qz * vz
-    two_dot_uv = 2.0 * dot_uv
-    dot_uu = qx * qx + qy * qy + qz * qz
-    v_scalar = qw * qw - dot_uu
-    two_qw = 2.0 * qw
-
-    {
-      two_dot_uv * qx + v_scalar * vx + two_qw * (qy * vz - qz * vy),
-      two_dot_uv * qy + v_scalar * vy + two_qw * (qz * vx - qx * vz),
-      two_dot_uv * qz + v_scalar * vz + two_qw * (qx * vy - qy * vx)
-    }
-  end
+  def transform_vector(q, v), do: transform_vector_nif(to_float(q), to_float_v3(v))
 
   @doc """
   `integrate(q, omega, dt)` integrates the angular velocty omega over a timestep dt with intial orientation q.
@@ -606,28 +681,7 @@ defmodule Graphmath.Quatern do
   It returns an orientation `quatern`.
   """
   @spec integrate(quatern, vec3, number) :: quatern
-  def integrate(q, omega, dt) do
-    # this routine inspired and adapted from http://physicsforgames.blogspot.com/2010/02/quaternions.html
-    # this explains a similar routine in cannon.js
-
-    # get convert angular velocity vector to actual angular displacement by integrating time
-    {theta_x, theta_y, theta_z} = theta = Graphmath.Vec3.scale(omega, 0.5 * dt)
-    theta_magnitude_squared = Graphmath.Vec3.length_squared(theta)
-
-    # use small-angle approximation for sin/cos if the magnitude is too small
-    {delta_q_w, s} =
-      if theta_magnitude_squared * theta_magnitude_squared / 24.0 < @machine_small_float do
-        # use the more stable Taylor series for low-angle appromixations to sin/cos
-        {1.0 - theta_magnitude_squared / 2.0, 1.0 - theta_magnitude_squared / 6.0}
-      else
-        # we're not too small! use real sin/cos
-        theta_magnitude = :math.sqrt(theta_magnitude_squared)
-        {:math.cos(theta_magnitude), :math.sin(theta_magnitude) / theta_magnitude}
-      end
-
-    multiply({delta_q_w, theta_x * s, theta_y * s, theta_z * s}, q)
-    |> normalize()
-  end
+  def integrate(q, omega, dt), do: integrate_nif(to_float(q), to_float_v3(omega), 1.0 * dt)
 
   @doc """
   Genrate a random quatenrion (rotation on SO3), using the algorithm given [here](http://planning.cs.uiuc.edu/node198.html).
@@ -650,4 +704,9 @@ defmodule Graphmath.Quatern do
 
     {sqrtomu1 * s2pu2, sqrtomu1 * c2pu2, sqrtu1 * s2pu3, sqrtu1 * c2pu3}
   end
+
+  defp to_float({w, x, y, z}), do: {1.0 * w, 1.0 * x, 1.0 * y, 1.0 * z}
+  defp to_float_v3({x, y, z}), do: {1.0 * x, 1.0 * y, 1.0 * z}
+  defp to_float_m33({a, b, c, d, e, f, g, h, i}),
+    do: {1.0 * a, 1.0 * b, 1.0 * c, 1.0 * d, 1.0 * e, 1.0 * f, 1.0 * g, 1.0 * h, 1.0 * i}
 end

@@ -1,11 +1,11 @@
-defmodule Graphmath.Mixfile do
+defmodule GraphmathNative.Mixfile do
   use Mix.Project
 
   def project do
     [
-      app: :graphmath,
+      app: :graphmath_native,
       version: "2.5.0",
-      elixir: "~> 1.16",
+      elixir: "~> 1.14",
       elixirc_paths: elixirc_paths(Mix.env()),
       description: description(),
       package: package(),
@@ -29,6 +29,9 @@ defmodule Graphmath.Mixfile do
 
   defp deps do
     [
+      {:zigler, "~> 0.13.2", runtime: false},
+      {:benchee, "~> 1.3"},
+      {:graphmath, "~> 2.5"},
       {:credo, "~> 1.7.6", only: :dev},
       {:dialyxir, "~> 1.4.3", only: [:dev], runtime: false},
       {:ex_doc, "~> 0.33.0", only: [:dev, :docs]},
